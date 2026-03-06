@@ -9,14 +9,6 @@ def call() {
       disableConcurrentBuilds()
     }
 
-    environment {
-      // Flags for detection
-      IS_NODE   = 'false'
-      IS_PYTHON = 'false'
-      IS_MAVEN  = 'false'
-      IS_GRADLE = 'false'
-    }
-
     stages {
 
       stage('Checkout') {
@@ -26,37 +18,34 @@ def call() {
       }
 
       stage('Detect') {
-  steps {
-    script {
-      sh 'pwd'
-      sh 'ls -la'
+        steps {
+          script {
+            sh 'pwd'
+            sh 'ls -la'
 
-      def hasPackageJson = sh(script: '[ -f package.json ] && echo true || echo false', returnStdout: true).trim() == 'true'
-      def hasPnpmLock    = sh(script: '[ -f pnpm-lock.yaml ] && echo true || echo false', returnStdout: true).trim() == 'true'
-      def hasYarnLock    = sh(script: '[ -f yarn.lock ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasPackageJson = sh(script: '[ -f package.json ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasPnpmLock    = sh(script: '[ -f pnpm-lock.yaml ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasYarnLock    = sh(script: '[ -f yarn.lock ] && echo true || echo false', returnStdout: true).trim() == 'true'
 
-      def hasReqs        = sh(script: '[ -f requirements.txt ] && echo true || echo false', returnStdout: true).trim() == 'true'
-      def hasPyProject   = sh(script: '[ -f pyproject.toml ] && echo true || echo false', returnStdout: true).trim() == 'true'
-      def hasSetupPy     = sh(script: '[ -f setup.py ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasReqs        = sh(script: '[ -f requirements.txt ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasPyProject   = sh(script: '[ -f pyproject.toml ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasSetupPy     = sh(script: '[ -f setup.py ] && echo true || echo false', returnStdout: true).trim() == 'true'
 
-      def hasPom         = sh(script: '[ -f pom.xml ] && echo true || echo false', returnStdout: true).trim() == 'true'
-      def hasGradle      = sh(script: '[ -f build.gradle ] && echo true || echo false', returnStdout: true).trim() == 'true'
-      def hasGradleKts   = sh(script: '[ -f build.gradle.kts ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasPom         = sh(script: '[ -f pom.xml ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasGradle      = sh(script: '[ -f build.gradle ] && echo true || echo false', returnStdout: true).trim() == 'true'
+            def hasGradleKts   = sh(script: '[ -f build.gradle.kts ] && echo true || echo false', returnStdout: true).trim() == 'true'
 
-      echo "raw detect => packageJson=${hasPackageJson}, pnpm=${hasPnpmLock}, yarn=${hasYarnLock}, reqs=${hasReqs}, pyproject=${hasPyProject}, setupPy=${hasSetupPy}, pom=${hasPom}, gradle=${hasGradle}, gradleKts=${hasGradleKts}"
-
-      env.IS_NODE   = (hasPackageJson || hasPnpmLock || hasYarnLock) ? 'true' : 'false'
-      env.IS_PYTHON = (hasReqs || hasPyProject || hasSetupPy) ? 'true' : 'false'
-      env.IS_MAVEN  = hasPom ? 'true' : 'false'
-      env.IS_GRADLE = (hasGradle || hasGradleKts) ? 'true' : 'false'
-
-      echo "Detect: node=${env.IS_NODE}, python=${env.IS_PYTHON}, maven=${env.IS_MAVEN}, gradle=${env.IS_GRADLE}"
-    }
-  }
-}
+            echo "raw detect => packageJson=${hasPackageJson}, pnpm=${hasPnpmLock}, yarn=${hasYarnLock}, reqs=${hasReqs}, pyproject=${hasPyProject}, setupPy=${hasSetupPy}, pom=${hasPom}, gradle=${hasGradle}, gradleKts=${hasGradleKts}"
+          }
+        }
+      }
 
       stage('Node CI') {
-        when { expression { env.IS_NODE == 'true' } }
+        when {
+          expression {
+            sh(script: '[ -f package.json ] || [ -f pnpm-lock.yaml ] || [ -f yarn.lock ]', returnStatus: true) == 0
+          }
+        }
         steps {
           sh '''
             set +e
@@ -65,34 +54,52 @@ def call() {
             node -v || true
             npm -v || true
 
-            # install deps
             if [ -f package-lock.json ]; then
               npm ci || npm install
             else
               npm install
             fi
 
-            # run tests (if defined)
-            npm test || true
+            npx playwright --version || true
+            npx playwright install --with-deps || true
 
-            # build (if defined)
+            npx playwright test || true
+            npm test || true
             npm run build || true
           '''
+        }
+        post {
+          always {
+            archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
+
+            publishHTML(target: [
+              allowMissing: true,
+              alwaysLinkToLastBuild: true,
+              keepAll: true,
+              reportDir: 'playwright-report',
+              reportFiles: 'index.html',
+              reportName: 'Playwright HTML Report'
+            ])
+          }
         }
       }
 
       stage('Python CI') {
-        when { expression { env.IS_PYTHON == 'true' } }
+        when {
+          expression {
+            sh(script: '[ -f requirements.txt ] || [ -f pyproject.toml ] || [ -f setup.py ]', returnStatus: true) == 0
+          }
+        }
         steps {
           sh '''
             set +e
             echo "== Python CI =="
 
-            python --version || true
-            pip --version || true
+            python --version || python3 --version || true
+            pip --version || pip3 --version || true
 
             if [ -f requirements.txt ]; then
-              pip install -r requirements.txt || true
+              pip install -r requirements.txt || pip3 install -r requirements.txt || true
             fi
 
             pytest -q || true
@@ -101,7 +108,11 @@ def call() {
       }
 
       stage('Java Maven CI') {
-        when { expression { env.IS_MAVEN == 'true' } }
+        when {
+          expression {
+            sh(script: '[ -f pom.xml ]', returnStatus: true) == 0
+          }
+        }
         steps {
           sh '''
             set +e
@@ -114,7 +125,11 @@ def call() {
       }
 
       stage('Java Gradle CI') {
-        when { expression { env.IS_GRADLE == 'true' } }
+        when {
+          expression {
+            sh(script: '[ -f build.gradle ] || [ -f build.gradle.kts ]', returnStatus: true) == 0
+          }
+        }
         steps {
           sh '''
             set +e
@@ -126,21 +141,19 @@ def call() {
         }
       }
 
-      // ✅ השדרוג שביקשת: פרסום תוצאות טסטים (JUnit) בג'נקינס
       stage('Publish Test Results') {
         steps {
-          // אם אין קובץ XML זה לא יפיל את הבילד
-          junit allowEmptyResults: true, testResults: '**/test-results/*.xml, **/junit*.xml, **/TEST-*.xml'
+          junit allowEmptyResults: true, testResults: '**/test-results/*.xml, **/junit*.xml, **/TEST-*.xml, **/surefire-reports/*.xml'
         }
       }
 
       stage('Nothing recognized') {
         when {
           expression {
-            env.IS_NODE != 'true' &&
-            env.IS_PYTHON != 'true' &&
-            env.IS_MAVEN != 'true' &&
-            env.IS_GRADLE != 'true'
+            sh(
+              script: '[ ! -f package.json ] && [ ! -f pnpm-lock.yaml ] && [ ! -f yarn.lock ] && [ ! -f requirements.txt ] && [ ! -f pyproject.toml ] && [ ! -f setup.py ] && [ ! -f pom.xml ] && [ ! -f build.gradle ] && [ ! -f build.gradle.kts ]',
+              returnStatus: true
+            ) == 0
           }
         }
         steps {
