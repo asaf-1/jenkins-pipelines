@@ -1,6 +1,3 @@
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurperClassic
-
 def call(Map config = [:]) {
     def rootDir = (config.rootDir ?: '.').toString()
 
@@ -50,10 +47,8 @@ def call(Map config = [:]) {
                         echo 'Detected buildable projects (execution order):'
                         detectedProjects.each { echo " - ${it.path} => ${it.type}" }
 
-                        writeFile(
-                            file: '.monorepo-projects.json',
-                            text: JsonOutput.prettyPrint(JsonOutput.toJson(detectedProjects))
-                        )
+                        def lines = detectedProjects.collect { "${it.type}\t${it.path}" }.join('\n')
+                        writeFile(file: '.monorepo-projects.txt', text: lines)
                     }
                 }
             }
@@ -61,7 +56,8 @@ def call(Map config = [:]) {
             stage('Run Projects') {
                 steps {
                     script {
-                        def projects = new JsonSlurperClassic().parseText(readFile('.monorepo-projects.json'))
+                        def projectsText = readFile('.monorepo-projects.txt')
+                        def projects = parseProjectsList(projectsText)
 
                         for (def project in projects) {
                             stage("Run: ${project.path}") {
@@ -117,12 +113,10 @@ def shouldSkipPath(String path) {
         return false
     }
 
-    // Skip the container folder itself, but allow child Python projects inside it.
     if (p == './Python_Projects') {
         return true
     }
 
-    // Skip Jenkins temp folders
     if (p.contains('@tmp')) {
         return true
     }
@@ -149,7 +143,6 @@ def shouldSkipPath(String path) {
 }
 
 def detectProjectType(String projectPath) {
-    // Playwright project
     if (
         fileExists("${projectPath}/package.json") &&
         (
@@ -162,12 +155,10 @@ def detectProjectType(String projectPath) {
         return 'playwright'
     }
 
-    // Generic Node project
     if (fileExists("${projectPath}/package.json")) {
         return 'node'
     }
 
-    // Python project by common config files
     if (
         fileExists("${projectPath}/requirements.txt") ||
         fileExists("${projectPath}/pyproject.toml")
@@ -175,7 +166,6 @@ def detectProjectType(String projectPath) {
         return 'python'
     }
 
-    // Python project by top-level .py files
     if (hasTopLevelPythonFiles(projectPath)) {
         return 'python'
     }
@@ -209,6 +199,27 @@ def reorderProjectsForExecution(List projects) {
     }
 
     return pythonProjects + nodeProjects + otherPlaywrightProjects + rootPlaywrightProjects + fallbackProjects
+}
+
+@NonCPS
+def parseProjectsList(String text) {
+    def result = []
+
+    if (!text) {
+        return result
+    }
+
+    text.split('\\r?\\n').each { line ->
+        def trimmed = line?.trim()
+        if (trimmed) {
+            def parts = trimmed.split('\\t', 2)
+            if (parts.length == 2) {
+                result << [type: parts[0], path: parts[1]]
+            }
+        }
+    }
+
+    return result
 }
 
 def runProject(String projectPath, String projectType) {
