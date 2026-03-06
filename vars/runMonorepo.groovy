@@ -83,9 +83,7 @@ def scanCandidateDirs(String rootDir) {
     def quotedRoot = shellQuote(rootDir)
 
     def output = sh(
-        script: """
-            find ${quotedRoot} -maxdepth 3 -type d | sort
-        """,
+        script: "find ${quotedRoot} -maxdepth 4 -type d | sort",
         returnStdout: true
     ).trim()
 
@@ -113,7 +111,7 @@ def shouldSkipPath(String path) {
         return false
     }
 
-    // Skip the container folder itself, but allow its child projects.
+    // Skip container folder itself, but allow child Python projects inside it.
     if (p == './Python_Projects') {
         return true
     }
@@ -128,7 +126,10 @@ def shouldSkipPath(String path) {
         'venv',
         'tests',
         'e2e',
-        'SCAPPER PROJECT'
+        'SCAPPER PROJECT',
+        'Reports',
+        'playwright-report',
+        'test-results'
     ]
 
     def segments = p.tokenize('/')
@@ -185,17 +186,17 @@ def runProject(String projectPath, String projectType) {
                 fi
 
                 echo "Installing Playwright browsers if needed..."
-                npx playwright install --with-deps || true
+                npx playwright install || true
             '''
 
-            if (hasPackageScript('test')) {
+            if (fileExists('playwright.monorepo.config.ts')) {
                 sh '''
-                    echo "Running npm test..."
-                    npm test
+                    echo "Running Playwright with monorepo config..."
+                    npx playwright test -c playwright.monorepo.config.ts
                 '''
             } else {
                 sh '''
-                    echo "No npm test script found. Running Playwright directly..."
+                    echo "Running Playwright with default config..."
                     npx playwright test
                 '''
             }
@@ -286,9 +287,7 @@ def runProject(String projectPath, String projectType) {
 
 def hasPackageScript(String scriptName) {
     return sh(
-        script: """
-            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); process.exit(p.scripts && p.scripts['${scriptName}'] ? 0 : 1)"
-        """,
+        script: "node -e \"const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); process.exit(p.scripts && p.scripts['${scriptName}'] ? 0 : 1)\"",
         returnStatus: true
     ) == 0
 }
@@ -297,18 +296,14 @@ def hasTopLevelPythonFiles(String projectPath) {
     def quotedPath = shellQuote(projectPath)
 
     return sh(
-        script: """
-            find ${quotedPath} -maxdepth 1 -type f -name "*.py" | head -n 1
-        """,
+        script: "find ${quotedPath} -maxdepth 1 -type f -name \"*.py\" | head -n 1",
         returnStdout: true
     ).trim()
 }
 
 def hasPythonTests() {
     return sh(
-        script: """
-            find . -maxdepth 2 -type f \\( -name "test_*.py" -o -name "*_test.py" \\) | head -n 1
-        """,
+        script: "find . -maxdepth 2 -type f \\( -name \"test_*.py\" -o -name \"*_test.py\" \\) | head -n 1",
         returnStdout: true
     ).trim()
 }
@@ -317,9 +312,7 @@ def publishReports() {
     echo 'Publishing reports if they exist...'
 
     def xmlFound = sh(
-        script: '''
-            find . -type f -name "*.xml" | head -n 1
-        ''',
+        script: "find . -type f -name \"*.xml\" | head -n 1",
         returnStdout: true
     ).trim()
 
@@ -333,9 +326,7 @@ def publishReports() {
     }
 
     def htmlReports = sh(
-        script: '''
-            find . -type f -path "*/playwright-report/index.html" | sort
-        ''',
+        script: "find . -type f -path \"*/playwright-report/index.html\" | sort",
         returnStdout: true
     ).trim()
 
