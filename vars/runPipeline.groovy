@@ -60,17 +60,57 @@ def call() {
               npm install
             fi
 
-            npx playwright --version || true
-            npx playwright install || true
+            PLAYWRIGHT_PROJECT=false
+            if [ -f playwright.config.ts ] || [ -f playwright.config.js ] || [ -f playwright.config.mjs ] || [ -f playwright.config.cjs ]; then
+              PLAYWRIGHT_PROJECT=true
+            fi
 
-            npx playwright test || true
-            npm test || true
-            npm run build || true
+            TEST_SCRIPT_EXISTS=false
+            if [ -f package.json ]; then
+              node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)" >/dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                TEST_SCRIPT_EXISTS=true
+              fi
+            fi
+
+            BUILD_SCRIPT_EXISTS=false
+            if [ -f package.json ]; then
+              node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)" >/dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                BUILD_SCRIPT_EXISTS=true
+              fi
+            fi
+
+            echo "Playwright project: $PLAYWRIGHT_PROJECT"
+            echo "Test script exists: $TEST_SCRIPT_EXISTS"
+            echo "Build script exists: $BUILD_SCRIPT_EXISTS"
+
+            if [ "$PLAYWRIGHT_PROJECT" = "true" ]; then
+              npx playwright --version || true
+              npx playwright install || true
+            fi
+
+            if [ "$TEST_SCRIPT_EXISTS" = "true" ]; then
+              echo "Running npm test..."
+              npm run test || true
+            elif [ "$PLAYWRIGHT_PROJECT" = "true" ]; then
+              echo "No npm test script found. Running Playwright directly..."
+              npx playwright test || true
+            else
+              echo "No test script found. Skipping tests."
+            fi
+
+            if [ "$BUILD_SCRIPT_EXISTS" = "true" ]; then
+              echo "Running npm build..."
+              npm run build || true
+            else
+              echo "No build script found. Skipping build."
+            fi
           '''
         }
         post {
           always {
-            archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'playwright-report/**, test-results/**', allowEmptyArchive: true
 
             publishHTML(target: [
               allowMissing: true,
@@ -143,7 +183,7 @@ def call() {
 
       stage('Publish Test Results') {
         steps {
-          junit allowEmptyResults: true, testResults: '**/test-results/*.xml, **/junit*.xml, **/TEST-*.xml, **/surefire-reports/*.xml'
+          junit allowEmptyResults: true, testResults: 'test-results/results.xml, **/TEST-*.xml, **/surefire-reports/*.xml'
         }
       }
 
