@@ -31,17 +31,19 @@ def call() {
       sh 'pwd'
       sh 'ls -la'
 
-      def hasPackageJson = sh(script: 'test -f package.json', returnStatus: true) == 0
-      def hasPnpmLock    = sh(script: 'test -f pnpm-lock.yaml', returnStatus: true) == 0
-      def hasYarnLock    = sh(script: 'test -f yarn.lock', returnStatus: true) == 0
+      def hasPackageJson = sh(script: '[ -f package.json ] && echo true || echo false', returnStdout: true).trim() == 'true'
+      def hasPnpmLock    = sh(script: '[ -f pnpm-lock.yaml ] && echo true || echo false', returnStdout: true).trim() == 'true'
+      def hasYarnLock    = sh(script: '[ -f yarn.lock ] && echo true || echo false', returnStdout: true).trim() == 'true'
 
-      def hasReqs        = sh(script: 'test -f requirements.txt', returnStatus: true) == 0
-      def hasPyProject   = sh(script: 'test -f pyproject.toml', returnStatus: true) == 0
-      def hasSetupPy     = sh(script: 'test -f setup.py', returnStatus: true) == 0
+      def hasReqs        = sh(script: '[ -f requirements.txt ] && echo true || echo false', returnStdout: true).trim() == 'true'
+      def hasPyProject   = sh(script: '[ -f pyproject.toml ] && echo true || echo false', returnStdout: true).trim() == 'true'
+      def hasSetupPy     = sh(script: '[ -f setup.py ] && echo true || echo false', returnStdout: true).trim() == 'true'
 
-      def hasPom         = sh(script: 'test -f pom.xml', returnStatus: true) == 0
-      def hasGradle      = sh(script: 'test -f build.gradle', returnStatus: true) == 0
-      def hasGradleKts   = sh(script: 'test -f build.gradle.kts', returnStatus: true) == 0
+      def hasPom         = sh(script: '[ -f pom.xml ] && echo true || echo false', returnStdout: true).trim() == 'true'
+      def hasGradle      = sh(script: '[ -f build.gradle ] && echo true || echo false', returnStdout: true).trim() == 'true'
+      def hasGradleKts   = sh(script: '[ -f build.gradle.kts ] && echo true || echo false', returnStdout: true).trim() == 'true'
+
+      echo "raw detect => packageJson=${hasPackageJson}, pnpm=${hasPnpmLock}, yarn=${hasYarnLock}, reqs=${hasReqs}, pyproject=${hasPyProject}, setupPy=${hasSetupPy}, pom=${hasPom}, gradle=${hasGradle}, gradleKts=${hasGradleKts}"
 
       env.IS_NODE   = (hasPackageJson || hasPnpmLock || hasYarnLock) ? 'true' : 'false'
       env.IS_PYTHON = (hasReqs || hasPyProject || hasSetupPy) ? 'true' : 'false'
