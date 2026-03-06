@@ -41,7 +41,7 @@ def call(Map config = [:]) {
                         }
 
                         detectedProjects = dedupeProjects(detectedProjects)
-                        detectedProjects = sortProjectsForExecution(detectedProjects)
+                        detectedProjects = reorderProjectsForExecution(detectedProjects)
 
                         if (detectedProjects.isEmpty()) {
                             error "No supported projects were detected under ${rootDir}"
@@ -117,10 +117,12 @@ def shouldSkipPath(String path) {
         return false
     }
 
+    // Skip the container folder itself, but allow child Python projects inside it.
     if (p == './Python_Projects') {
         return true
     }
 
+    // Skip Jenkins temp folders
     if (p.contains('@tmp')) {
         return true
     }
@@ -147,6 +149,7 @@ def shouldSkipPath(String path) {
 }
 
 def detectProjectType(String projectPath) {
+    // Playwright project
     if (
         fileExists("${projectPath}/package.json") &&
         (
@@ -159,10 +162,12 @@ def detectProjectType(String projectPath) {
         return 'playwright'
     }
 
+    // Generic Node project
     if (fileExists("${projectPath}/package.json")) {
         return 'node'
     }
 
+    // Python project by common config files
     if (
         fileExists("${projectPath}/requirements.txt") ||
         fileExists("${projectPath}/pyproject.toml")
@@ -170,6 +175,7 @@ def detectProjectType(String projectPath) {
         return 'python'
     }
 
+    // Python project by top-level .py files
     if (hasTopLevelPythonFiles(projectPath)) {
         return 'python'
     }
@@ -177,25 +183,32 @@ def detectProjectType(String projectPath) {
     return null
 }
 
-def sortProjectsForExecution(List projects) {
-    return projects.sort { a, b ->
-        def pa = projectPriority(a.path as String, a.type as String)
-        def pb = projectPriority(b.path as String, b.type as String)
+@NonCPS
+def reorderProjectsForExecution(List projects) {
+    def pythonProjects = []
+    def nodeProjects = []
+    def otherPlaywrightProjects = []
+    def rootPlaywrightProjects = []
+    def fallbackProjects = []
 
-        if (pa != pb) {
-            return pa <=> pb
+    projects.each { project ->
+        def path = project.path as String
+        def type = project.type as String
+
+        if (type == 'python') {
+            pythonProjects << project
+        } else if (type == 'node') {
+            nodeProjects << project
+        } else if (type == 'playwright' && path != '.') {
+            otherPlaywrightProjects << project
+        } else if (type == 'playwright' && path == '.') {
+            rootPlaywrightProjects << project
+        } else {
+            fallbackProjects << project
         }
-
-        return (a.path as String) <=> (b.path as String)
     }
-}
 
-def projectPriority(String path, String type) {
-    if (type == 'python') return 1
-    if (type == 'node') return 2
-    if (type == 'playwright' && path != '.') return 3
-    if (type == 'playwright' && path == '.') return 4
-    return 5
+    return pythonProjects + nodeProjects + otherPlaywrightProjects + rootPlaywrightProjects + fallbackProjects
 }
 
 def runProject(String projectPath, String projectType) {
