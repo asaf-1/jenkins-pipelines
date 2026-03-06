@@ -41,15 +41,19 @@ def call(Map config = [:]) {
                         }
 
                         detectedProjects = dedupeProjects(detectedProjects)
+                        detectedProjects = sortProjectsForExecution(detectedProjects)
 
                         if (detectedProjects.isEmpty()) {
                             error "No supported projects were detected under ${rootDir}"
                         }
 
-                        echo 'Detected buildable projects:'
+                        echo 'Detected buildable projects (execution order):'
                         detectedProjects.each { echo " - ${it.path} => ${it.type}" }
 
-                        env.MONOREPO_PROJECTS = JsonOutput.toJson(detectedProjects)
+                        writeFile(
+                            file: '.monorepo-projects.json',
+                            text: JsonOutput.prettyPrint(JsonOutput.toJson(detectedProjects))
+                        )
                     }
                 }
             }
@@ -57,11 +61,13 @@ def call(Map config = [:]) {
             stage('Run Projects') {
                 steps {
                     script {
-                        def projects = new JsonSlurperClassic().parseText(env.MONOREPO_PROJECTS)
+                        def projects = new JsonSlurperClassic().parseText(readFile('.monorepo-projects.json'))
 
                         for (def project in projects) {
                             stage("Run: ${project.path}") {
-                                runProject(project.path as String, project.type as String)
+                                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                                    runProject(project.path as String, project.type as String)
+                                }
                             }
                         }
                     }
@@ -111,8 +117,11 @@ def shouldSkipPath(String path) {
         return false
     }
 
-    // Skip container folder itself, but allow child Python projects inside it.
     if (p == './Python_Projects') {
+        return true
+    }
+
+    if (p.contains('@tmp')) {
         return true
     }
 
@@ -168,6 +177,27 @@ def detectProjectType(String projectPath) {
     return null
 }
 
+def sortProjectsForExecution(List projects) {
+    return projects.sort { a, b ->
+        def pa = projectPriority(a.path as String, a.type as String)
+        def pb = projectPriority(b.path as String, b.type as String)
+
+        if (pa != pb) {
+            return pa <=> pb
+        }
+
+        return (a.path as String) <=> (b.path as String)
+    }
+}
+
+def projectPriority(String path, String type) {
+    if (type == 'python') return 1
+    if (type == 'node') return 2
+    if (type == 'playwright' && path != '.') return 3
+    if (type == 'playwright' && path == '.') return 4
+    return 5
+}
+
 def runProject(String projectPath, String projectType) {
     echo "Running project in ${projectPath} [type=${projectType}]"
 
@@ -181,37 +211,39 @@ def runProject(String projectPath, String projectType) {
                   npm install
                 fi
 
-                echo "Installing Playwright browsers if needed..."
-                npx playwright install || true
+                echo "Installing Chromium only (faster for CI)..."
+                npx playwright install chromium || true
             '''
 
-            withCredentials([
-                string(credentialsId: 'google-sheet-id', variable: 'GOOGLE_SHEET_ID'),
-                string(credentialsId: 'google-sheet-tab', variable: 'GOOGLE_SHEET_TAB'),
-                file(credentialsId: 'google-service-account-json', variable: 'GOOGLE_SA_FILE')
-            ]) {
-                if (fileExists('playwright.monorepo.config.ts')) {
-                    sh '''
-                        export SHEET_ID="$GOOGLE_SHEET_ID"
-                        export GOOGLE_SHEET_ID="$GOOGLE_SHEET_ID"
-                        export GOOGLE_SHEET_TAB="$GOOGLE_SHEET_TAB"
-                        export GOOGLE_SA_PATH="$GOOGLE_SA_FILE"
-                        export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_SA_FILE"
+            timeout(time: 8, unit: 'MINUTES') {
+                withCredentials([
+                    string(credentialsId: 'google-sheet-id', variable: 'GOOGLE_SHEET_ID'),
+                    string(credentialsId: 'google-sheet-tab', variable: 'GOOGLE_SHEET_TAB'),
+                    file(credentialsId: 'google-service-account-json', variable: 'GOOGLE_SA_FILE')
+                ]) {
+                    if (fileExists('playwright.monorepo.config.ts')) {
+                        sh '''
+                            export SHEET_ID="$GOOGLE_SHEET_ID"
+                            export GOOGLE_SHEET_ID="$GOOGLE_SHEET_ID"
+                            export GOOGLE_SHEET_TAB="$GOOGLE_SHEET_TAB"
+                            export GOOGLE_SA_PATH="$GOOGLE_SA_FILE"
+                            export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_SA_FILE"
 
-                        echo "Running Playwright with monorepo config and Jenkins credentials..."
-                        npx playwright test -c playwright.monorepo.config.ts
-                    '''
-                } else {
-                    sh '''
-                        export SHEET_ID="$GOOGLE_SHEET_ID"
-                        export GOOGLE_SHEET_ID="$GOOGLE_SHEET_ID"
-                        export GOOGLE_SHEET_TAB="$GOOGLE_SHEET_TAB"
-                        export GOOGLE_SA_PATH="$GOOGLE_SA_FILE"
-                        export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_SA_FILE"
+                            echo "Running Playwright with monorepo config, Chromium only, no retries..."
+                            npx playwright test -c playwright.monorepo.config.ts --project=chromium --workers=1 --retries=0
+                        '''
+                    } else {
+                        sh '''
+                            export SHEET_ID="$GOOGLE_SHEET_ID"
+                            export GOOGLE_SHEET_ID="$GOOGLE_SHEET_ID"
+                            export GOOGLE_SHEET_TAB="$GOOGLE_SHEET_TAB"
+                            export GOOGLE_SA_PATH="$GOOGLE_SA_FILE"
+                            export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_SA_FILE"
 
-                        echo "Running Playwright with default config and Jenkins credentials..."
-                        npx playwright test
-                    '''
+                            echo "Running Playwright with default config, Chromium only, no retries..."
+                            npx playwright test --project=chromium --workers=1 --retries=0
+                        '''
+                    }
                 }
             }
         }
