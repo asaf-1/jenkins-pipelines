@@ -26,6 +26,8 @@ def call() {
       stage('Detect') {
         steps {
           script {
+            sh 'pwd'
+              sh 'ls -la'
             env.IS_NODE   = (fileExists('package.json') || fileExists('yarn.lock') || fileExists('pnpm-lock.yaml')) ? 'true' : 'false'
             env.IS_PYTHON = (fileExists('requirements.txt') || fileExists('pyproject.toml') || fileExists('setup.py')) ? 'true' : 'false'
             env.IS_MAVEN  = fileExists('pom.xml') ? 'true' : 'false'
