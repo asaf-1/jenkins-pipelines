@@ -26,19 +26,32 @@ def call() {
       }
 
       stage('Detect') {
-        steps {
-          script {
-            sh 'pwd'
-              sh 'ls -la'
-            env.IS_NODE   = (fileExists('package.json') || fileExists('pnpm-lock.yaml') || fileExists('yarn.lock')) ? 'true' : 'false'
-            env.IS_PYTHON = (fileExists('requirements.txt') || fileExists('pyproject.toml') || fileExists('setup.py')) ? 'true' : 'false'
-            env.IS_MAVEN  = (fileExists('pom.xml')) ? 'true' : 'false'
-            env.IS_GRADLE = (fileExists('build.gradle') || fileExists('build.gradle.kts')) ? 'true' : 'false'
+  steps {
+    script {
+      sh 'pwd'
+      sh 'ls -la'
 
-            echo "Detect: node=${env.IS_NODE}, python=${env.IS_PYTHON}, maven=${env.IS_MAVEN}, gradle=${env.IS_GRADLE}"
-          }
-        }
-      }
+      def hasPackageJson = sh(script: 'test -f package.json', returnStatus: true) == 0
+      def hasPnpmLock    = sh(script: 'test -f pnpm-lock.yaml', returnStatus: true) == 0
+      def hasYarnLock    = sh(script: 'test -f yarn.lock', returnStatus: true) == 0
+
+      def hasReqs        = sh(script: 'test -f requirements.txt', returnStatus: true) == 0
+      def hasPyProject   = sh(script: 'test -f pyproject.toml', returnStatus: true) == 0
+      def hasSetupPy     = sh(script: 'test -f setup.py', returnStatus: true) == 0
+
+      def hasPom         = sh(script: 'test -f pom.xml', returnStatus: true) == 0
+      def hasGradle      = sh(script: 'test -f build.gradle', returnStatus: true) == 0
+      def hasGradleKts   = sh(script: 'test -f build.gradle.kts', returnStatus: true) == 0
+
+      env.IS_NODE   = (hasPackageJson || hasPnpmLock || hasYarnLock) ? 'true' : 'false'
+      env.IS_PYTHON = (hasReqs || hasPyProject || hasSetupPy) ? 'true' : 'false'
+      env.IS_MAVEN  = hasPom ? 'true' : 'false'
+      env.IS_GRADLE = (hasGradle || hasGradleKts) ? 'true' : 'false'
+
+      echo "Detect: node=${env.IS_NODE}, python=${env.IS_PYTHON}, maven=${env.IS_MAVEN}, gradle=${env.IS_GRADLE}"
+    }
+  }
+}
 
       stage('Node CI') {
         when { expression { env.IS_NODE == 'true' } }
