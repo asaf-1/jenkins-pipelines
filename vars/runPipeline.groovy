@@ -61,7 +61,7 @@ def call() {
             fi
 
             npx playwright --version || true
-            npx playwright install --with-deps || true
+            npx playwright install || true
 
             npx playwright test || true
             npm test || true
