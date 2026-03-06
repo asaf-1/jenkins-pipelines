@@ -87,7 +87,7 @@ def call() {
 
             if [ "$PLAYWRIGHT_PROJECT" = "true" ]; then
               npx playwright --version || true
-              npx playwright install || true
+              PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install
             fi
 
             if [ "$TEST_SCRIPT_EXISTS" = "true" ]; then
