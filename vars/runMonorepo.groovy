@@ -138,7 +138,6 @@ def shouldSkipPath(String path) {
 }
 
 def detectProjectType(String projectPath) {
-    // Playwright project
     if (
         fileExists("${projectPath}/package.json") &&
         (
@@ -151,12 +150,10 @@ def detectProjectType(String projectPath) {
         return 'playwright'
     }
 
-    // Generic Node project
     if (fileExists("${projectPath}/package.json")) {
         return 'node'
     }
 
-    // Python project by common config files
     if (
         fileExists("${projectPath}/requirements.txt") ||
         fileExists("${projectPath}/pyproject.toml")
@@ -164,7 +161,6 @@ def detectProjectType(String projectPath) {
         return 'python'
     }
 
-    // Python project by top-level .py files
     if (hasTopLevelPythonFiles(projectPath)) {
         return 'python'
     }
@@ -189,16 +185,34 @@ def runProject(String projectPath, String projectType) {
                 npx playwright install || true
             '''
 
-            if (fileExists('playwright.monorepo.config.ts')) {
-                sh '''
-                    echo "Running Playwright with monorepo config..."
-                    npx playwright test -c playwright.monorepo.config.ts
-                '''
-            } else {
-                sh '''
-                    echo "Running Playwright with default config..."
-                    npx playwright test
-                '''
+            withCredentials([
+                string(credentialsId: 'google-sheet-id', variable: 'GOOGLE_SHEET_ID'),
+                string(credentialsId: 'google-sheet-tab', variable: 'GOOGLE_SHEET_TAB'),
+                file(credentialsId: 'google-service-account-json', variable: 'GOOGLE_SA_FILE')
+            ]) {
+                if (fileExists('playwright.monorepo.config.ts')) {
+                    sh '''
+                        export SHEET_ID="$GOOGLE_SHEET_ID"
+                        export GOOGLE_SHEET_ID="$GOOGLE_SHEET_ID"
+                        export GOOGLE_SHEET_TAB="$GOOGLE_SHEET_TAB"
+                        export GOOGLE_SA_PATH="$GOOGLE_SA_FILE"
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_SA_FILE"
+
+                        echo "Running Playwright with monorepo config and Jenkins credentials..."
+                        npx playwright test -c playwright.monorepo.config.ts
+                    '''
+                } else {
+                    sh '''
+                        export SHEET_ID="$GOOGLE_SHEET_ID"
+                        export GOOGLE_SHEET_ID="$GOOGLE_SHEET_ID"
+                        export GOOGLE_SHEET_TAB="$GOOGLE_SHEET_TAB"
+                        export GOOGLE_SA_PATH="$GOOGLE_SA_FILE"
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_SA_FILE"
+
+                        echo "Running Playwright with default config and Jenkins credentials..."
+                        npx playwright test
+                    '''
+                }
             }
         }
 
